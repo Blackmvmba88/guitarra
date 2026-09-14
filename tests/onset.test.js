@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectOnsets } from "../web/core/onset.js";
+import { detectOnsets, detectOnsetsFromMono } from "../web/core/onset.js";
 
 function fakeBuffer({ sampleRate = 48000, duration = 1.0, attacks = [0.2, 0.5, 0.8] } = {}) {
   const length = Math.floor(sampleRate * duration);
@@ -20,6 +20,7 @@ function fakeBuffer({ sampleRate = 48000, duration = 1.0, attacks = [0.2, 0.5, 0
     length,
     sampleRate,
     duration,
+    data,
     getChannelData(channel) {
       assert.equal(channel, 0);
       return data;
@@ -41,4 +42,16 @@ test("synthetic attacks create an ordered non-empty event map", () => {
     assert.ok(events[i].start >= events[i - 1].start);
     assert.ok(events[i].end > events[i].start);
   }
+});
+
+test("worker PCM path matches AudioBuffer path exactly", () => {
+  const buffer = fakeBuffer({ attacks: [0.12, 0.33, 0.57, 0.88] });
+  const direct = detectOnsets(buffer, 1.2);
+  const workerStyle = detectOnsetsFromMono(
+    buffer.data.slice(),
+    buffer.sampleRate,
+    buffer.duration,
+    1.2
+  );
+  assert.deepEqual(workerStyle, direct);
 });
