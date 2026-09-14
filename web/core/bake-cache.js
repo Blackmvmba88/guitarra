@@ -1,7 +1,7 @@
 const DB_NAME = "blackmamba-pick";
 const DB_VERSION = 1;
 const STORE = "bakes";
-export const ANALYZER_VERSION = "0.2.0-bake";
+export const ANALYZER_VERSION = "0.3.0-progressive";
 
 export function makeBakeKey(sourceHash, sensitivity) {
   return `${ANALYZER_VERSION}:${sourceHash}:${Number(sensitivity).toFixed(2)}`;
