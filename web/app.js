@@ -21,6 +21,7 @@ const els = {
   positionValue: document.querySelector("#positionValue"),
   strengthValue: document.querySelector("#strengthValue"),
   latencyValue: document.querySelector("#latencyValue"),
+  agentLeadValue: document.querySelector("#agentLeadValue"),
   controllerState: document.querySelector("#controllerState"),
   statusText: document.querySelector("#statusText"),
   timeline: document.querySelector("#timeline")
@@ -74,6 +75,7 @@ els.audioFile.addEventListener("change", async (event) => {
     els.eventCount.textContent = "0 EVENTS";
     els.pickIndex.textContent = "0 / 0";
     els.resetButton.disabled = true;
+    updateAgentLead();
 
     await ensureAudio();
     const bytes = await file.arrayBuffer();
@@ -115,6 +117,7 @@ els.resetButton.addEventListener("click", () => {
       ? "READY · FULLY BAKED"
       : `READY · ${bakedThrough.toFixed(1)} s BAKED`
     : "NO EVENTS";
+  updateAgentLead();
   drawTimeline();
 });
 
@@ -144,6 +147,7 @@ async function startBake({ preferCache }) {
   gestureDetector.resetState();
   els.pickIndex.textContent = "0 / 0";
   els.resetButton.disabled = true;
+  updateAgentLead();
 
   const sensitivity = Number(els.sensitivity.value);
   const bakeKey = makeBakeKey(sourceHash, sensitivity);
@@ -250,6 +254,7 @@ function applyProgressMap(message) {
     els.statusText.textContent = `PLAYABLE · AGENT ${percent}%`;
   }
 
+  updateAgentLead();
   drawTimeline();
 }
 
@@ -268,6 +273,7 @@ function applyFinalMap(nextSlices, source, { preservePosition = false } = {}) {
       ? "COMPLETE · FULLY BAKED"
       : `READY · ${source}`
     : "NO EVENTS";
+  updateAgentLead();
   drawTimeline();
 }
 
@@ -304,6 +310,7 @@ async function handlePick(gesture) {
     els.statusText.textContent = bakeComplete
       ? "COMPLETE"
       : `WAITING FOR BAKE · ${bakedThrough.toFixed(1)} s READY`;
+    updateAgentLead();
     return;
   }
 
@@ -331,6 +338,7 @@ async function handlePick(gesture) {
       : `PLAYING · ${bakedThrough.toFixed(1)} s READY`;
   }
 
+  updateAgentLead();
   drawTimeline();
 }
 
@@ -371,6 +379,22 @@ function updateControllerBadge(gamepad) {
   const name = gamepad.id.length > 32 ? `${gamepad.id.slice(0, 29)}…` : gamepad.id;
   els.controllerState.textContent = name || "CONTROLLER";
   els.controllerState.classList.add("online");
+}
+
+function updateAgentLead() {
+  if (!els.agentLeadValue) return;
+  if (bakeComplete && audioBuffer) {
+    els.agentLeadValue.textContent = "FULL";
+    return;
+  }
+
+  const nextTimelineTime = currentEvent < slices.length
+    ? slices[currentEvent].start
+    : slices.length
+      ? slices[slices.length - 1].end
+      : 0;
+  const leadSeconds = Math.max(0, bakedThrough - nextTimelineTime);
+  els.agentLeadValue.textContent = `${leadSeconds.toFixed(1)} s`;
 }
 
 function drawTimeline() {
