@@ -1,0 +1,14 @@
+{
+  "events": [
+    { "note": "E4", "durationMs": 180 },
+    { "note": "G4", "durationMs": 160 },
+    { "note": "A4", "durationMs": 150 },
+    { "note": "B4", "durationMs": 220 },
+    { "note": "A4", "durationMs": 170 },
+    { "note": "G4", "durationMs": 160 },
+    { "note": "E4", "durationMs": 260 },
+    { "note": "D4", "durationMs": 180 },
+    { "note": "E4", "durationMs": 300 },
+    { "note": "G4", "durationMs": 320 }
+  ]
+}
