@@ -62,7 +62,7 @@ Output example:
 
 ## Local validation
 
-Do not run this until both repositories are present locally.
+Both repositories must be present locally.
 
 ### 1. Start Switch live monitor
 
@@ -78,23 +78,35 @@ Expected endpoint:
 ws://127.0.0.1:8137/live
 ```
 
-`switch` must be using a profile that exposes semantic `RX` and `RY` for the connected controller.
+### 2. Publish the physical controller frames
 
-### 2. Install Guitarra dependencies
+Open:
 
-From the `guitarra` repository:
+```text
+switch/gamepad-test/index.html
+```
+
+Connect the Xbox controller, click **Connect live monitor**, and confirm that the page is sending frames.
+
+This step matters because the live monitor is the semantic server; `gamepad-test` is the browser Gamepad API producer that sends `browser-frame` samples into it.
+
+`switch` must use a normalized profile that exposes semantic `RX` and `RY` for the connected controller. If the Xbox pad is new to the runtime, calibrate/import its profile in `switch`; do not hardcode physical axis indices in `guitarra`.
+
+### 3. Install Guitarra dependencies
+
+From the `guitarra` repository on branch `feat/switch-runtime-bridge`:
 
 ```bash
 npm install
 ```
 
-### 3. Run offline tests
+### 4. Run offline tests
 
 ```bash
 npm test
 ```
 
-### 4. Live pick diagnostic
+### 5. Live pick diagnostic
 
 ```bash
 npm run pick
@@ -109,7 +121,7 @@ PICK RIGHT strength=0.91 speed=8.42
 PICK LEFT  strength=0.88 speed=7.97
 ```
 
-### 5. Consume a known phrase
+### 6. Consume a known phrase
 
 ```bash
 npm run pick -- --sequence examples/phrase.json
