@@ -17,6 +17,18 @@ export function detectOnsets(audioBuffer, sensitivity = 1.6) {
 }
 
 export function detectOnsetsFromMono(mono, sampleRate, duration, sensitivity = 1.6) {
+  const onsets = detectOnsetTimesFromMono(mono, sampleRate, sensitivity, {
+    includeOrigin: true
+  });
+  return buildSlicesFromOnsets(onsets, duration);
+}
+
+export function detectOnsetTimesFromMono(
+  mono,
+  sampleRate,
+  sensitivity = 1.6,
+  { includeOrigin = true } = {}
+) {
   const length = mono.length;
   const frameSize = 1024;
   const hopSize = 512;
@@ -70,18 +82,21 @@ export function detectOnsetsFromMono(mono, sampleRate, duration, sensitivity = 1
     }
   }
 
-  if (onsets.length === 0 || onsets[0] > 0.08) onsets.unshift(0);
-  return buildSlices(onsets, duration);
+  if (includeOrigin && (onsets.length === 0 || onsets[0] > 0.08)) onsets.unshift(0);
+  return onsets;
 }
 
-function buildSlices(onsets, duration) {
+export function buildSlicesFromOnsets(onsets, duration) {
+  const ordered = [...onsets]
+    .filter((value) => Number.isFinite(value) && value >= 0 && value <= duration)
+    .sort((a, b) => a - b);
   const slices = [];
   const maxSlice = 1.25;
   const minSlice = 0.035;
 
-  for (let i = 0; i < onsets.length; i += 1) {
-    const start = onsets[i];
-    const naturalEnd = i + 1 < onsets.length ? onsets[i + 1] : duration;
+  for (let i = 0; i < ordered.length; i += 1) {
+    const start = ordered[i];
+    const naturalEnd = i + 1 < ordered.length ? ordered[i + 1] : duration;
     const end = Math.min(
       duration,
       start + Math.min(maxSlice, Math.max(minSlice, naturalEnd - start))
