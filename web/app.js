@@ -1,6 +1,11 @@
-import { detectOnsets } from "./core/onset.js";
 import { PickGestureDetector } from "./core/gesture.js";
 import { SlicePlayer } from "./core/player.js";
+import {
+  getBakedMap,
+  hashArrayBuffer,
+  makeBakeKey,
+  putBakedMap
+} from "./core/bake-cache.js";
 
 const els = {
   audioFile: document.querySelector("#audioFile"),
@@ -24,12 +29,15 @@ const els = {
 let audioContext = null;
 let player = null;
 let audioBuffer = null;
+let sourceHash = null;
 let slices = [];
 let currentEvent = 0;
 let activeGamepadIndex = null;
 let octave = 0;
 let position = { label: "A", semitones: 0 };
 let previousButtons = [];
+let bakeWorker = null;
+let bakeGeneration = 0;
 
 const gestureDetector = new PickGestureDetector({
   deadzone: 0.15,
@@ -46,6 +54,7 @@ const positions = [
 
 els.sensitivity.addEventListener("input", () => {
   els.sensitivityValue.value = Number(els.sensitivity.value).toFixed(1);
+  if (audioBuffer) els.analyzeButton.textContent = "REBAKE";
 });
 
 els.audioFile.addEventListener("change", async (event) => {
@@ -53,39 +62,42 @@ els.audioFile.addEventListener("change", async (event) => {
   if (!file) return;
 
   try {
-    els.statusText.textContent = "DECODING";
-    await ensureAudio();
-    const bytes = await file.arrayBuffer();
-    audioBuffer = await audioContext.decodeAudioData(bytes.slice(0));
-    player.setBuffer(audioBuffer);
+    stopBakeWorker();
     slices = [];
     currentEvent = 0;
-    els.fileMeta.textContent = `${file.name} · ${audioBuffer.duration.toFixed(2)} s`;
+    sourceHash = null;
+    els.statusText.textContent = "DECODING + HASHING";
     els.eventCount.textContent = "0 EVENTS";
     els.pickIndex.textContent = "0 / 0";
-    els.analyzeButton.disabled = false;
     els.resetButton.disabled = true;
-    els.statusText.textContent = "READY TO ANALYZE";
+
+    await ensureAudio();
+    const bytes = await file.arrayBuffer();
+
+    const [hash, decoded] = await Promise.all([
+      hashArrayBuffer(bytes),
+      audioContext.decodeAudioData(bytes.slice(0))
+    ]);
+
+    sourceHash = hash;
+    audioBuffer = decoded;
+    player.setBuffer(audioBuffer);
+
+    els.fileMeta.textContent = `${file.name} · ${audioBuffer.duration.toFixed(2)} s`;
+    els.analyzeButton.disabled = false;
+    els.analyzeButton.textContent = "REBAKE";
+    els.statusText.textContent = "REFERENCE READY · BAKING";
     drawTimeline();
+
+    void startBake({ preferCache: true });
   } catch (error) {
     console.error(error);
     els.statusText.textContent = "DECODE ERROR";
   }
 });
 
-els.analyzeButton.addEventListener("click", async () => {
-  if (!audioBuffer) return;
-  await ensureAudio();
-  els.statusText.textContent = "ANALYZING";
-  const sensitivity = Number(els.sensitivity.value);
-  slices = detectOnsets(audioBuffer, sensitivity);
-  currentEvent = 0;
-  gestureDetector.resetState();
-  els.eventCount.textContent = `${slices.length} EVENTS`;
-  els.pickIndex.textContent = `0 / ${slices.length}`;
-  els.resetButton.disabled = slices.length === 0;
-  els.statusText.textContent = slices.length ? "READY" : "NO EVENTS";
-  drawTimeline();
+els.analyzeButton.addEventListener("click", () => {
+  void startBake({ preferCache: false });
 });
 
 els.resetButton.addEventListener("click", () => {
@@ -94,7 +106,7 @@ els.resetButton.addEventListener("click", () => {
   els.pickIndex.textContent = `0 / ${slices.length}`;
   els.pickDirection.textContent = "●";
   els.strengthValue.textContent = "0.00";
-  els.statusText.textContent = "READY";
+  els.statusText.textContent = slices.length ? "READY · BAKED" : "NO EVENTS";
   drawTimeline();
 });
 
@@ -111,6 +123,103 @@ window.addEventListener("gamepaddisconnected", (event) => {
     els.controllerState.classList.remove("online");
   }
 });
+
+async function startBake({ preferCache }) {
+  if (!audioBuffer || !sourceHash) return;
+
+  const generation = ++bakeGeneration;
+  stopBakeWorker();
+
+  const sensitivity = Number(els.sensitivity.value);
+  const bakeKey = makeBakeKey(sourceHash, sensitivity);
+
+  if (preferCache) {
+    els.statusText.textContent = "CHECKING BAKE";
+    try {
+      const cached = await getBakedMap(bakeKey);
+      if (generation !== bakeGeneration) return;
+      if (cached?.slices?.length) {
+        applyBakedMap(cached.slices, "CACHE");
+        return;
+      }
+    } catch (error) {
+      console.warn("Bake cache unavailable", error);
+    }
+  }
+
+  els.statusText.textContent = "BAKING IN BACKGROUND";
+  els.eventCount.textContent = "BAKING…";
+
+  const channels = [];
+  for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
+    channels.push(audioBuffer.getChannelData(channel).slice().buffer);
+  }
+
+  bakeWorker = new Worker("./workers/bake-worker.js", { type: "module" });
+
+  bakeWorker.onmessage = async (event) => {
+    const message = event.data;
+    if (!message || message.generation !== bakeGeneration) return;
+
+    if (message.type === "ERROR") {
+      els.statusText.textContent = `BAKE ERROR · ${message.error}`;
+      stopBakeWorker();
+      return;
+    }
+
+    if (message.type !== "BAKED") return;
+
+    applyBakedMap(message.slices, `BAKED ${message.elapsedMs.toFixed(0)} ms`);
+    stopBakeWorker();
+
+    try {
+      await putBakedMap(bakeKey, {
+        sourceHash,
+        sensitivity,
+        slices: message.slices,
+        duration: audioBuffer.duration
+      });
+    } catch (error) {
+      console.warn("Could not persist bake cache", error);
+    }
+  };
+
+  bakeWorker.onerror = (error) => {
+    console.error(error);
+    if (generation === bakeGeneration) els.statusText.textContent = "BAKE WORKER ERROR";
+    stopBakeWorker();
+  };
+
+  bakeWorker.postMessage(
+    {
+      type: "BAKE",
+      generation,
+      sourceHash,
+      sensitivity,
+      sampleRate: audioBuffer.sampleRate,
+      duration: audioBuffer.duration,
+      channels
+    },
+    channels
+  );
+}
+
+function applyBakedMap(nextSlices, source) {
+  slices = nextSlices;
+  currentEvent = 0;
+  gestureDetector.resetState();
+  els.eventCount.textContent = `${slices.length} EVENTS · ${source}`;
+  els.pickIndex.textContent = `0 / ${slices.length}`;
+  els.resetButton.disabled = slices.length === 0;
+  els.statusText.textContent = slices.length ? `READY · ${source}` : "NO EVENTS";
+  drawTimeline();
+}
+
+function stopBakeWorker() {
+  if (!bakeWorker) return;
+  bakeWorker.terminate();
+  bakeWorker = null;
+}
 
 function pollGamepad() {
   const gamepads = navigator.getGamepads?.() ?? [];
@@ -152,7 +261,7 @@ async function handlePick(gesture) {
   els.strengthValue.textContent = gesture.strength.toFixed(2);
   els.latencyValue.textContent = `${schedulingLatency.toFixed(1)} ms`;
   els.pickIndex.textContent = `${currentEvent} / ${slices.length}`;
-  els.statusText.textContent = currentEvent >= slices.length ? "COMPLETE" : "PLAYING";
+  els.statusText.textContent = currentEvent >= slices.length ? "COMPLETE" : "PLAYING · BAKED";
   drawTimeline();
 }
 
