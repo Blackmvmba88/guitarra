@@ -64,12 +64,16 @@ Output example:
 
 Both repositories must be present locally.
 
-### 1. Start Switch live monitor
+### 1. Start Switch with the Xbox semantic profile
+
+Until the Xbox profile PR is merged, use branch `feat/xbox-guitarra-profile` in `switch`.
 
 From the `switch` repository:
 
 ```bash
-./start-live-monitor.sh
+git fetch
+git checkout feat/xbox-guitarra-profile
+PROFILE=profiles/xbox-standard-gamepad.normalized.json ./start-live-monitor.sh
 ```
 
 Expected endpoint:
@@ -90,13 +94,15 @@ Connect the Xbox controller, click **Connect live monitor**, and confirm that th
 
 This step matters because the live monitor is the semantic server; `gamepad-test` is the browser Gamepad API producer that sends `browser-frame` samples into it.
 
-`switch` must use a normalized profile that exposes semantic `RX` and `RY` for the connected controller. If the Xbox pad is new to the runtime, calibrate/import its profile in `switch`; do not hardcode physical axis indices in `guitarra`.
+The standard Xbox profile maps semantic right stick to `RX/RY`. If macOS/browser reports the Xbox controller with a non-standard mapping, calibrate/import a device-specific profile in `switch`; do not hardcode physical axis indices in `guitarra`.
 
-### 3. Install Guitarra dependencies
+### 3. Prepare Guitarra
 
-From the `guitarra` repository on branch `feat/switch-runtime-bridge`:
+From the `guitarra` repository:
 
 ```bash
+git fetch
+git checkout feat/switch-runtime-bridge
 npm install
 ```
 
