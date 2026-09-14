@@ -38,6 +38,8 @@ let position = { label: "A", semitones: 0 };
 let previousButtons = [];
 let bakeWorker = null;
 let bakeGeneration = 0;
+let bakedThrough = 0;
+let bakeComplete = false;
 
 const gestureDetector = new PickGestureDetector({
   deadzone: 0.15,
@@ -66,6 +68,8 @@ els.audioFile.addEventListener("change", async (event) => {
     slices = [];
     currentEvent = 0;
     sourceHash = null;
+    bakedThrough = 0;
+    bakeComplete = false;
     els.statusText.textContent = "DECODING + HASHING";
     els.eventCount.textContent = "0 EVENTS";
     els.pickIndex.textContent = "0 / 0";
@@ -106,7 +110,11 @@ els.resetButton.addEventListener("click", () => {
   els.pickIndex.textContent = `0 / ${slices.length}`;
   els.pickDirection.textContent = "●";
   els.strengthValue.textContent = "0.00";
-  els.statusText.textContent = slices.length ? "READY · BAKED" : "NO EVENTS";
+  els.statusText.textContent = slices.length
+    ? bakeComplete
+      ? "READY · FULLY BAKED"
+      : `READY · ${bakedThrough.toFixed(1)} s BAKED`
+    : "NO EVENTS";
   drawTimeline();
 });
 
@@ -129,6 +137,13 @@ async function startBake({ preferCache }) {
 
   const generation = ++bakeGeneration;
   stopBakeWorker();
+  slices = [];
+  currentEvent = 0;
+  bakedThrough = 0;
+  bakeComplete = false;
+  gestureDetector.resetState();
+  els.pickIndex.textContent = "0 / 0";
+  els.resetButton.disabled = true;
 
   const sensitivity = Number(els.sensitivity.value);
   const bakeKey = makeBakeKey(sourceHash, sensitivity);
@@ -139,7 +154,7 @@ async function startBake({ preferCache }) {
       const cached = await getBakedMap(bakeKey);
       if (generation !== bakeGeneration) return;
       if (cached?.slices?.length) {
-        applyBakedMap(cached.slices, "CACHE");
+        applyFinalMap(cached.slices, "CACHE");
         return;
       }
     } catch (error) {
@@ -147,8 +162,8 @@ async function startBake({ preferCache }) {
     }
   }
 
-  els.statusText.textContent = "BAKING IN BACKGROUND";
-  els.eventCount.textContent = "BAKING…";
+  els.statusText.textContent = "BAKING AHEAD";
+  els.eventCount.textContent = "AGENT STARTING…";
 
   const channels = [];
   for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
@@ -167,9 +182,16 @@ async function startBake({ preferCache }) {
       return;
     }
 
+    if (message.type === "BAKE_PROGRESS") {
+      applyProgressMap(message);
+      return;
+    }
+
     if (message.type !== "BAKED") return;
 
-    applyBakedMap(message.slices, `BAKED ${message.elapsedMs.toFixed(0)} ms`);
+    applyFinalMap(message.slices, `BAKED ${message.elapsedMs.toFixed(0)} ms`, {
+      preservePosition: true
+    });
     stopBakeWorker();
 
     try {
@@ -198,20 +220,54 @@ async function startBake({ preferCache }) {
       sensitivity,
       sampleRate: audioBuffer.sampleRate,
       duration: audioBuffer.duration,
+      windowSeconds: 12,
+      overlapSeconds: 0.35,
       channels
     },
     channels
   );
 }
 
-function applyBakedMap(nextSlices, source) {
-  slices = nextSlices;
-  currentEvent = 0;
-  gestureDetector.resetState();
-  els.eventCount.textContent = `${slices.length} EVENTS · ${source}`;
-  els.pickIndex.textContent = `0 / ${slices.length}`;
+function applyProgressMap(message) {
+  const wasWaiting = currentEvent >= slices.length;
+  slices = message.slices;
+  bakedThrough = message.bakedThrough;
+  bakeComplete = false;
+  currentEvent = Math.min(currentEvent, slices.length);
+
+  const percent = Math.min(100, Math.max(0, Math.round(message.progress * 100)));
+  els.eventCount.textContent = `${slices.length} READY · ${bakedThrough.toFixed(1)} s · ${percent}%`;
+  els.pickIndex.textContent = `${currentEvent} / ${slices.length}`;
   els.resetButton.disabled = slices.length === 0;
-  els.statusText.textContent = slices.length ? `READY · ${source}` : "NO EVENTS";
+
+  if (slices.length === 0) {
+    els.statusText.textContent = `BAKING AHEAD · ${percent}%`;
+  } else if (wasWaiting && currentEvent < slices.length) {
+    els.statusText.textContent = `AGENT AHEAD · ${bakedThrough.toFixed(1)} s READY`;
+  } else if (currentEvent >= slices.length) {
+    els.statusText.textContent = `WAITING FOR BAKE · ${percent}%`;
+  } else {
+    els.statusText.textContent = `PLAYABLE · AGENT ${percent}%`;
+  }
+
+  drawTimeline();
+}
+
+function applyFinalMap(nextSlices, source, { preservePosition = false } = {}) {
+  const previousIndex = preservePosition ? currentEvent : 0;
+  slices = nextSlices;
+  currentEvent = Math.min(previousIndex, slices.length);
+  bakedThrough = audioBuffer?.duration ?? 0;
+  bakeComplete = true;
+  if (!preservePosition) gestureDetector.resetState();
+  els.eventCount.textContent = `${slices.length} EVENTS · ${source}`;
+  els.pickIndex.textContent = `${currentEvent} / ${slices.length}`;
+  els.resetButton.disabled = slices.length === 0;
+  els.statusText.textContent = slices.length
+    ? currentEvent >= slices.length
+      ? "COMPLETE · FULLY BAKED"
+      : `READY · ${source}`
+    : "NO EVENTS";
   drawTimeline();
 }
 
@@ -244,7 +300,12 @@ function pollGamepad() {
 }
 
 async function handlePick(gesture) {
-  if (!slices.length || currentEvent >= slices.length) return;
+  if (!slices.length || currentEvent >= slices.length) {
+    els.statusText.textContent = bakeComplete
+      ? "COMPLETE"
+      : `WAITING FOR BAKE · ${bakedThrough.toFixed(1)} s READY`;
+    return;
+  }
 
   await ensureAudio();
   const event = slices[currentEvent];
@@ -261,7 +322,15 @@ async function handlePick(gesture) {
   els.strengthValue.textContent = gesture.strength.toFixed(2);
   els.latencyValue.textContent = `${schedulingLatency.toFixed(1)} ms`;
   els.pickIndex.textContent = `${currentEvent} / ${slices.length}`;
-  els.statusText.textContent = currentEvent >= slices.length ? "COMPLETE" : "PLAYING · BAKED";
+
+  if (currentEvent >= slices.length) {
+    els.statusText.textContent = bakeComplete ? "COMPLETE" : "CAUGHT AGENT · BAKING AHEAD";
+  } else {
+    els.statusText.textContent = bakeComplete
+      ? "PLAYING · FULLY BAKED"
+      : `PLAYING · ${bakedThrough.toFixed(1)} s READY`;
+  }
+
   drawTimeline();
 }
 
@@ -317,6 +386,20 @@ function drawTimeline() {
   if (!audioBuffer) return;
 
   const duration = audioBuffer.duration || 1;
+  const bakedWidth = Math.min(width, (bakedThrough / duration) * width);
+  if (bakedWidth > 0) {
+    ctx.fillStyle = "rgba(118,238,184,.055)";
+    ctx.fillRect(0, 0, bakedWidth, height);
+    if (!bakeComplete) {
+      ctx.strokeStyle = "rgba(118,238,184,.7)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bakedWidth, 0);
+      ctx.lineTo(bakedWidth, height);
+      ctx.stroke();
+    }
+  }
+
   ctx.strokeStyle = "rgba(255,255,255,.12)";
   ctx.lineWidth = 2;
   ctx.beginPath();
