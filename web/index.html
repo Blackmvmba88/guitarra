@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BLACKMAMBA PICK</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">BLACKMAMBA RECORDS</p>
+        <h1>BLACKMAMBA PICK</h1>
+      </div>
+      <div id="controllerState" class="badge">NO CONTROLLER</div>
+    </header>
+
+    <section class="modules">
+      <article class="card">
+        <h2>IMPORT</h2>
+        <input id="audioFile" type="file" accept="audio/*">
+        <div id="fileMeta" class="metric">NO AUDIO</div>
+      </article>
+
+      <article class="card">
+        <h2>ANALYZE</h2>
+        <label class="control">
+          <span>SENSITIVITY</span>
+          <input id="sensitivity" type="range" min="0.8" max="3.0" step="0.1" value="1.6">
+          <output id="sensitivityValue">1.6</output>
+        </label>
+        <button id="analyzeButton" disabled>ANALYZE</button>
+        <div id="eventCount" class="metric">0 EVENTS</div>
+      </article>
+
+      <article class="card play-card">
+        <h2>PLAY</h2>
+        <div class="pick-readout">
+          <span id="pickDirection">●</span>
+          <strong id="pickIndex">0 / 0</strong>
+        </div>
+        <div class="mini-grid">
+          <div><span>OCTAVE</span><strong id="octaveValue">0</strong></div>
+          <div><span>POSITION</span><strong id="positionValue">A · 0</strong></div>
+          <div><span>STRENGTH</span><strong id="strengthValue">0.00</strong></div>
+          <div><span>LATENCY</span><strong id="latencyValue">—</strong></div>
+          <div><span>AGENT LEAD</span><strong id="agentLeadValue">0.0 s</strong></div>
+        </div>
+        <button id="resetButton" disabled>RESET</button>
+      </article>
+    </section>
+
+    <section class="timeline-card">
+      <div class="timeline-head">
+        <h2>EVENTS</h2>
+        <span id="statusText">IMPORT AUDIO</span>
+      </div>
+      <canvas id="timeline" width="1200" height="220"></canvas>
+    </section>
+
+    <section class="legend">
+      <span>RIGHT STICK ← → = PICK</span>
+      <span>LB / RB = OCTAVE</span>
+      <span>A / B / X / Y = POSITION</span>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
